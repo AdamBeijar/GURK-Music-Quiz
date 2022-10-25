@@ -903,7 +903,6 @@ class gameConsumer(AsyncWebsocketConsumer):
                 break
         if everyoneOnline:
             await self.updateRoomState("game")
-            tasks.startCountDown.delay(self.room_group_name)
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -929,24 +928,91 @@ class gameConsumer(AsyncWebsocketConsumer):
 
     async def guessSubmit(self):
         song = await self.cleanUpSongName()
-        if await self.mostOfStringCorrect(song, self.text_data_json["guess"]):
-            await self.addAPoint()
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    "type": "guessSubmitCorrectSongNameGroup",
-                    "nickname": self.nickname,
-                }
-            )
+        artists = await self.cleanUpArtistName()
+        if not self.text_data_json["guess"]:
+            if await self.oneOfArtistsCorrect(artists, self.text_data_json["artistGuess"]):
+                await self.addAPoint(1)
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "guessSubmitCorrectArtistNameGroup",
+                        "nickname": self.nickname,
+                        "guess": self.text_data_json["artistGuess"],
+                    }
+                )
+            else:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "guessSubmitIncorrectArtistNameGroup",
+                        "nickname": self.nickname,
+                        "guess": self.text_data_json["artistGuess"],
+                    }
+                )
+        elif not self.text_data_json["artistGuess"]:
+            if await self.mostOfStringCorrect(song, self.text_data_json["guess"]):
+                await self.addAPoint(1)
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "guessSubmitCorrectSongNameGroup",
+                        "nickname": self.nickname,
+                        "guess": self.text_data_json["guess"],
+                    }
+                )
+            else:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "guessSubmitIncorrectSongNameGroup",
+                        "nickname": self.nickname,
+                        "guess": self.text_data_json["guess"],
+                    }
+                )
         else:
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    "type": "guessSubmitIncorrectSongNameGroup",
-                    "nickname": self.nickname,
-                    "guess": self.text_data_json["guess"],
-                }
-            )
+            guessAnswer = await self.mostOfStringOrArtistCorrect(song, artists, self.text_data_json["guess"], self.text_data_json["artistGuess"])
+            if guessAnswer["correct"]:
+                if guessAnswer["type"] == "song":
+                    await self.addAPoint(1)
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "guessSubmitCorrectSongNameGroup",
+                            "nickname": self.nickname,
+                            "guess": self.text_data_json["guess"],
+                        }
+                    )
+                elif guessAnswer["type"] == "artist":
+                    await self.addAPoint(1)
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "guessSubmitCorrectArtistNameGroup",
+                            "nickname": self.nickname,
+                            "guess": self.text_data_json["artistGuess"],
+                        }
+                    )
+                elif guessAnswer["type"] == "both":
+                    await self.addAPoint(2)
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "guessSubmitCorrectBothGroup",
+                            "nickname": self.nickname,
+                            "guess": self.text_data_json["guess"],
+                            "artistGuess": self.text_data_json["artistGuess"],
+                        }
+                    )
+            else:
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "guessSubmitIncorrectGroup",
+                        "nickname": self.nickname,
+                        "guess": self.text_data_json["guess"],
+                        "artistGuess": self.text_data_json["artistGuess"],
+                    }
+                )
 
     async def getSong(self):
         if self.leader:
@@ -970,6 +1036,27 @@ class gameConsumer(AsyncWebsocketConsumer):
         )
 
     # End of receive
+    async def mostOfStringOrArtistCorrect(self,correctSong, correctArtist, songGuess, artistGuess):
+        if await self.mostOfStringCorrect(correctSong, songGuess) and await self.oneOfArtistsCorrect(correctArtist, artistGuess):
+            return {
+                "correct": True,
+                "type": "both",
+            }
+        elif await self.mostOfStringCorrect(correctSong, songGuess):
+            return {
+                "correct": True,
+                "type": "song",
+            }
+        elif await self.oneOfArtistsCorrect(correctArtist, artistGuess):
+           return {
+               "correct": True,
+               "type": "artist",
+           }
+        else:
+            return {
+                "correct": False,
+            }
+
     async def nextSongStartGroup(self, event):
         if self.currentSong == len(self.songList):
             highestScore = await self.getHighestScore()
@@ -1046,8 +1133,34 @@ class gameConsumer(AsyncWebsocketConsumer):
                 "ContentType": "youGuessedIncorrectSongName",
                 "guess": event["guess"]
             }))
+    
+    async def guessSubmitCorrectArtistNameGroup(self, event):
+        if not event["nickname"] == self.nickname:
+            await self.send(text_data=json.dumps({
+                "ContentType": "guessSubmitCorrectArtistName",
+                "nickname": event["nickname"],
+                "guess": event["guess"]
+            }))
+        else:
+            await self.send(text_data=json.dumps({
+                "ContentType": "youGuessedCorrectArtistName",
+                "guess": event["guess"]
+            }))
 
-    async def gameStart(self, event):
+    async def guessSubmitIncorrectArtistNameGroup(self, event):
+        if not event["nickname"] == self.nickname:
+            await self.send(text_data=json.dumps({
+                "ContentType": "guessSubmitIncorrectArtistName",
+                "nickname": event["nickname"],
+                "guess": event["guess"]
+            }))
+        else:
+            await self.send(text_data=json.dumps({
+                "ContentType": "youGuessedIncorrectArtistName",
+                "guess": event["guess"]
+            }))
+
+    async def gameStart(self):
         await self.updateRoomState("game")
         self.songList = await self.getSongList()
         if self.leader:
@@ -1106,6 +1219,7 @@ class gameConsumer(AsyncWebsocketConsumer):
     
     async def getSongData(self):
         self.roundDone = False
+        print(self.currentSong)
         song = self.songList[self.currentSong]
         return song
 
@@ -1115,6 +1229,15 @@ class gameConsumer(AsyncWebsocketConsumer):
 
     async def getCurrentSong(self):
         return self.songList[self.currentSong]
+
+    async def cleanUpArtistName(self):
+        artist = await self.getCurrentSong()
+        artist = artist["artist"].lower()
+        artist = artist.split(",")
+        #remove spaces in artist name
+        for i in artist:
+            i = i.replace(" ", "")
+        return artist
 
     async def cleanUpSongName(self):
         song = await self.getCurrentSong()
@@ -1126,6 +1249,14 @@ class gameConsumer(AsyncWebsocketConsumer):
         song["title"] = re.sub(r'feat.*', '', song["title"])
         song["title"] = re.sub(r'ft.*', '', song["title"])
         return song
+
+    async def oneOfArtistsCorrect(self, artists, guess):
+        print(guess, artists)
+        guess = guess.lower()
+        guess = guess.replace(" ", "")
+        if guess in artists:
+            return True
+        return False
 
     async def mostOfStringCorrect(self, song, guess):
         song = song["title"]
@@ -1157,10 +1288,10 @@ class gameConsumer(AsyncWebsocketConsumer):
     # Database Functions
 
     @database_sync_to_async
-    def addAPoint(self):
+    def addAPoint(self, ammount):
         room = Rooms.objects.get(room_id=self.room_name)
         user = Users.objects.get(room=room, nickname=self.nickname)
-        user.points += 1
+        user.points += ammount
         user.save()
 
     @database_sync_to_async

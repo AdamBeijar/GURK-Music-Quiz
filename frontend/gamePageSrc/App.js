@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import Button from "../landingPageSrc/components/Button";
+import CountDownTimer from "./components/countDownTimer/countDownTimer";
 import { gameclient } from "./services/gameWebSocketConnect"
 
 const App = () => {
@@ -8,7 +9,6 @@ const App = () => {
     const [users, setUsers] = useState([{"name": "No users yet"}])
     const [ready, setReady] = useState(false)
     const [gameState, setGameState] = useState("waiting")
-    const [countDownTimer, setCountDownTimer] = useState("nope")
     const [roomLeader, setRoomLeader] = useState(false)
     const [gameStarted, setGameStarted] = useState(false)
     const [currentSong, setCurrentSong] = useState({})
@@ -21,6 +21,11 @@ const App = () => {
     const [ currentLeader, setCurrentLeader ] = useState("")
     const [ winner, setWinner ] = useState("")
     const [ yourSongName, setYourSongName ] = useState("")
+    const [ yourSongArtist, setYourSongArtist ] = useState("")
+    const [ artistGuess, setArtistGuess ] = useState("")
+    const [ songHasBeenGuessed, setSongHasBeenGuessed ] = useState(false)
+    const [ artistHasBeenGuessed, setArtistHasBeenGuessed ] = useState(false)
+    const [ countDownTimerMS, setCountDownTimerMS ] = useState(0)
 
     useEffect(() => {
         if(session){
@@ -54,10 +59,13 @@ const App = () => {
             case "usersOnline": {  
                 console.log("usersOnline", data)
                 setReady(true)
+                setCountDownTimerMS(7000)
+                setGameState("countdown")
             } break
             case "youAreLeader": {
                 setRoomLeader(true)
             } break
+
             case "gameStart": {
                 setGameState("game")
                 setGameStarted(true)
@@ -73,13 +81,11 @@ const App = () => {
                 setCountDownTimer(data.count)
             } break
             case "guessClick": {
-                document.getElementById("audio").pause()
                 setGuessing(true)
                 setWhosGuessing(data.nickname)
                 console.log("guessClick", data)
             } break
             case "youGuessed": {
-                document.getElementById("audio").pause()
                 setYouGuessed(true)
             } break
             case "songData": {
@@ -90,7 +96,7 @@ const App = () => {
                 setYourSongName("")
             } break
             case "guessSubmitCorrectSongName": {
-                document.getElementById("audio").pause()
+                setSongHasBeenGuessed(true)
                 setGuesses(guesses => [...guesses, {"guess": currentSong.title, "nickname": data.nickname, "correct": true}])
                 setYouGuessed(false)
                 setGuessing(false)
@@ -98,23 +104,54 @@ const App = () => {
             } break
             case "youGuessedCorrectSongName": {
                 console.log("youGuessedCorrectSongName")
-                document.getElementById("audio").pause()
+                setSongHasBeenGuessed(true)
                 setGuesses(guesses => [...guesses, {"guess": "guessed: "+currentSong.title, "nickname": "You", "correct": true}])
                 setYouGuessed(false)
                 setGuessing(false)
                 setWhosGuessing("")
                 setCorrectGuess("correct")
-                handleNextSong()
+                if(artistHasBeenGuessed){
+                    handleNextSong()
+                }
             } break
             case "guessSubmitIncorrectSongName": {
-                document.getElementById("audio").play()
                 setGuesses(guesses => [...guesses, {"guess": data.guess, "nickname": data.nickname, "correct": false}])
                 setYouGuessed(false)
                 setGuessing(false)
                 setWhosGuessing("")
             } break
             case "youGuessedIncorrectSongName": {
-                document.getElementById("audio").play()
+                setGuesses(guesses => [...guesses, {"guess": data.guess, "nickname": "You", "correct": false}])
+                setYouGuessed(false)
+                setGuessing(false)
+                setWhosGuessing("")
+                setCorrectGuess("incorrect")
+            } break
+            case "guessSubmitCorrectArtist": {
+               setArtistHasBeenGuessed(true)
+                setGuesses(guesses => [...guesses, {"guess": currentSong.artist, "nickname": data.nickname, "correct": true}])
+                setYouGuessed(false)
+                setGuessing(false)
+                setWhosGuessing("")
+            } break
+            case "youGuessedCorrectArtist": {
+                setArtistHasBeenGuessed(true)
+                setGuesses(guesses => [...guesses, {"guess": "guessed: "+currentSong.artist, "nickname": "You", "correct": true}])
+                setYouGuessed(false)
+                setGuessing(false)
+                setWhosGuessing("")
+                setCorrectGuess("correct")
+                if(songHasBeenGuessed){
+                    handleNextSong()
+                }
+            } break
+            case "guessSubmitIncorrectArtist": {
+                setGuesses(guesses => [...guesses, {"guess": data.guess, "nickname": data.nickname, "correct": false}])
+                setYouGuessed(false)
+                setGuessing(false)
+                setWhosGuessing("")
+            } break
+            case "youGuessedIncorrectArtist": {
                 setGuesses(guesses => [...guesses, {"guess": data.guess, "nickname": "You", "correct": false}])
                 setYouGuessed(false)
                 setGuessing(false)
@@ -133,7 +170,7 @@ const App = () => {
                 document.getElementById("audio").play()
                 setCorrectGuess("Youre the leader")
                 setYourSongName(data.song.title)
-            } break
+            } break 
             case "gameEnd": {
                 setGameState("end")
                 setWinner(data.winner)
@@ -155,15 +192,23 @@ const App = () => {
         setGuess(e.target.value)
     }
 
+    const handleArtistGuess = (e) => {
+        console.log("handleArtistGuess", e.target.value)
+        setArtistGuess(e.target.value)
+    }
+
     const handleGuessSubmit = () => {
-        if (guess.length > 0){
+        if (guess.length > 0 || artistGuess.length > 0){
             gameclient.send(JSON.stringify({
                 "ContentType": "guessSubmit",
-                "guess": guess
+                "guess": guess,
+                "artistGuess": artistGuess
             }))
         }
+        setArtistGuess("")
         setGuess("")
     }
+
 
     const handleNextSong = () => {
         console.log("handleNextSong")
@@ -171,6 +216,13 @@ const App = () => {
             "ContentType": "nextSong",
         }))
         setCorrectGuess("")
+    }
+
+    const updateGameState = (state) => {
+        setGameState(state)
+        gameclient.send(JSON.stringify({
+            "ContentType": "gameStart"
+        }))
     }
       
     if(gameState === "waiting"){
@@ -187,13 +239,9 @@ const App = () => {
     } else if(gameState === "countdown"){
         return (
             <div className={"body"}>
-                <div className={"countdown"}>
-                    <h1>Game starting in</h1>
-                    <h1>{countDownTimer}</h1>
-                </div>
-                Hello Worlds!
-                <div className="userList">{users.map(user => <div className={user.id}>id: {user.uniqueID} nickname: {user.nickname}</div>)}</div>
-                <div className="gameState">{gameState}</div>
+                <CountDownTimer 
+                countdownTimestampMs={countDownTimerMS}
+                updateGameState={updateGameState}/>
             </div>
     )
     } else if(gameState === "game"){
@@ -210,11 +258,16 @@ const App = () => {
                 <h1>{whosGuessing} is guessing</h1>
             </div>
             }
-                {yourSongName.length > 0 && <h1>{yourSongName}</h1>}
+            {yourSongName.length > 0 && <h1>{yourSongName}</h1>}
+            {songHasBeenGuessed && <h1>{currentSong.title}</h1>}
+            {artistHasBeenGuessed && <h1>{currentSong.artist}</h1>}
             {youGuessed && !currentLeader ?
 
             <div className="guessing">
-                <input type="text" placeholder="Guess the song" onChange={handleGuess} value={guess}/>
+                {!songHasBeenGuessed && 
+                <input type="text" placeholder="Guess the song" onChange={handleGuess} value={guess}/>}
+                {!artistHasBeenGuessed && 
+                <input type="text" placeholder="Guess the artist" onChange={handleArtistGuess} value={artistGuess}/>}
                 <Button name={"Guess"} onClick={handleGuessSubmit} disabled={false} className={"submitButton"}/>
             </div> 
 
